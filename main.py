@@ -2,8 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import pgeocode
-import ast
-import re
+
 
 # Set page config
 st.set_page_config(page_title="Clinical Trials Analysis", layout="wide", initial_sidebar_state="collapsed")
