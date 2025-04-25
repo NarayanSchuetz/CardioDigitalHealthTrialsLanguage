@@ -133,7 +133,7 @@ geo_df = load_geographical_data()
 st.title("Clinical Trials Language Analysis")
 
 # Create tabs
-tab1, tab2, tab3 = st.tabs(["Trial Categorization", "Geographical Analysis", "AI/ML Analysis"])
+tab1, tab2, tab3 = st.tabs(["Trial Categorization", "Geographical Analysis", "Methods"])
 
 # First tab - Trial Categorization
 with tab1:
@@ -538,112 +538,34 @@ with tab2:
     else:
         st.warning("Could not generate map. Ensure 'first_zipcode' column exists and contains valid US zip codes.")
 
-# Third tab - AI/ML Analysis
+# Third tab - Methods
 with tab3:
-    st.header("AI/ML Clinical Trials Analysis")
-    st.write("We aimed to identify trials that use describe the use AI/ML in some way or form.")
+    st.header("Methods")
     
-    # Check if the ai_ml column exists
-    if 'ai_ml' in original_df.columns:
-        # Filter for AI/ML trials
-        ai_ml_df = original_df[original_df['ai_ml'] == True]
-        
-        # Display basic statistics
-        st.subheader("Overview")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric("Total AI/ML Trials", len(ai_ml_df))
-        
-        with col2:
-            percentage = (len(ai_ml_df) / len(original_df)) * 100
-            st.metric("Percentage of All Trials", f"{percentage:.1f}%")
-        
-        # Add download button for AI/ML data
-        csv_ai_ml = convert_df_to_csv(ai_ml_df)
-        st.download_button(
-            label="Download AI/ML Trials Data (CSV)",
-            data=csv_ai_ml,
-            file_name="ai_ml_trials.csv",
-            mime='text/csv',
-            key='ai_ml_download'
-        )
-        st.divider()
-        
-        # Calculate English inclusion/exclusion statistics
-        st.subheader("English Language Criteria in AI/ML Trials")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            english_included = ai_ml_df['english_is_inclusion'].sum() if 'english_is_inclusion' in ai_ml_df.columns else 0
-            st.metric("Trials with English as Inclusion Criteria", english_included)
-            if len(ai_ml_df) > 0:
-                st.caption(f"{english_included/len(ai_ml_df)*100:.1f}% of AI/ML trials")
-        
-        with col2:
-            non_english_excluded = ai_ml_df['non_english_is_exclusion'].sum() if 'non_english_is_exclusion' in ai_ml_df.columns else 0
-            st.metric("Trials with Non-English as Exclusion Criteria", non_english_excluded)
-            if len(ai_ml_df) > 0:
-                st.caption(f"{non_english_excluded/len(ai_ml_df)*100:.1f}% of AI/ML trials")
-        st.divider()
-        
-        # Add other languages statistics
-        st.subheader("Other Language Criteria in AI/ML Trials")
-        total_with_other, total_languages, language_counts = count_other_languages(ai_ml_df)
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Trials with Add'l Languages", total_with_other)
-            if len(ai_ml_df) > 0:
-                st.caption(f"{total_with_other/len(ai_ml_df)*100:.1f}% of AI/ML trials")
-        with col2:
-            st.metric("Total Add'l Languages Listed", total_languages)
-        with col3:
-            avg_langs = total_languages/total_with_other if total_with_other > 0 else 0
-            st.metric("Avg Add'l Languages per Trial", f"{avg_langs:.1f}" if total_with_other > 0 else "N/A")
-        st.divider()
-        
-        # Display individual languages
-        if not language_counts.empty:
-            st.subheader("Additionally Included Languages in AI/ML Trials")
-            # Create a DataFrame for the bar plot
-            lang_df = pd.DataFrame({
-                'Language': language_counts.index,
-                'Number of Trials': language_counts.values,
-                'Percentage': (language_counts.values / total_with_other * 100).round(1)
-            })
-            
-            # Create bar plot
-            fig_lang_bar = px.bar(
-                lang_df.sort_values(by='Number of Trials', ascending=True),
-                y='Language',
-                x='Number of Trials',
-                text='Percentage',
-                title='Number of AI/ML Trials by Language',
-                labels={'Number of Trials': 'Number of Trials', 'Language': 'Language'},
-                color='Number of Trials',
-                color_continuous_scale=stanford_continuous,
-                orientation='h'
-            )
-            
-            # Update layout
-            fig_lang_bar.update_layout(
-                yaxis_title=None,
-                xaxis_title='Number of Trials',
-                height=400 + (len(lang_df) * 20),
-                showlegend=False,
-                coloraxis_showscale=False,
-                margin=dict(l=120)
-            )
-            
-            # Add percentage labels
-            fig_lang_bar.update_traces(
-                texttemplate='%{text}%',
-                textposition='outside'
-            )
-            
-            st.plotly_chart(fig_lang_bar, use_container_width=True, key="ai_ml_lang_bar")
-            st.caption("Percentage shown is relative to trials with additional languages.")
-    else:
-        st.warning("The ai_ml column was not found in the dataset.")
-        st.write("Available columns:", original_df.columns.tolist())
+    # Display flowchart at the top
+    with open("FlowChart_v3.svg", "r") as f:
+        svg = f.read()
+    st.markdown(svg, unsafe_allow_html=True)
+    
+    st.subheader("Data Acquisition and Initial Processing")
+    st.write("""
+    An initial dataset comprising 1,986 clinical trials, identified by their National Clinical Trial (NCT) numbers, was obtained from "clinicaltrials.gov" based on the following query (metabolic syndrome OR obesity OR overweight OR weight OR diet OR nutrition OR prediabetes OR pre-diabetes OR diabetes OR prehypertension OR hypertension or dyslipidemia OR hyperlipidemia OR heart disease OR coronary artery disease OR atherosclerotic vascular disease OR coronary atherosclerosis OR atherosclerosis, coronary OR atherosclerosis OR atheroscleroses OR atheromatosis OR cardiovascular OR peripheral artery disease OR physical activity OR exercise OR sedentary OR healthy OR lifestyle factors OR heart failure OR atrial fibrillation OR atrial flutter OR arrhythmia | digital therapeutic OR digital therapy OR digital therapies OR mobile health OR smartphone OR smart phone OR digital intervention OR mobile platform OR mobile app OR mobile device OR study app OR digital treatment OR android OR app OR app. OR app, OR digital tablet OR iOS OR iPhone OR smartwatch OR smartwatch OR virtual reality OR video game OR digital health OR mobile video OR digital platform OR software intervention OR software treatment | In United States | Adult (18 - 64), Older adult (65+) | Accepts healthy volunteers | Interventional studies). An automated procedure using natural language processing was employed to extract the participant inclusion and exclusion criteria text for each trial record from their web entry. This extraction process was subject to occasional errors, leading to incomplete criteria data for a subset of trials. Following this initial data collection and extraction, a manual curation step was performed, resulting in the removal of 498 trials that studied a pediatric population and those whose primary subject area was in either cancer or neurologic disorders. This yielded an intermediate working dataset of 1,488 clinical trial records.
+    """)
+    
+    st.subheader("Language Criteria Extraction and Refinement")
+    st.write("""
+    The extracted inclusion and exclusion criteria texts for the 1,488 trials were processed usingnatural language processing for each trial record from their web entry on ClinicalTrials.gov. This extraction process was subject to occasional errors, leading to incomplete criteria data for a subset of trials. An initial analysis of this automated extraction output was performed to identify trials where criteria extraction was incomplete (i.e., both inclusion and exclusion fields were blank, or only one was populated). For these identified trials, the complete inclusion and exclusion criteria were manually retrieved from ClinicaTrials.gov and integrated into the dataset. Subsequently, the language criteria extraction process was re-executed on the fully populated dataset of 1,488 trials to ensure consistent analysis.
+    """)
+    
+    st.subheader("Trial Categorization and Feature Identification")
+    st.write("""
+    Each of the 1,488 trials was then subjected to automated categorization. This analysis utilized the structured 'Conditions' field and the free-text 'Brief Description' associated with each trial record. Trials were assigned to one of several predefined main categories: Metabolic & Weight-Related Disorders, Cardiovascular Diseases, Cancers, Lifestyle & Behavioral Factors, Neurocognitive & Mental Health, or Other / Special Populations. Trials categorized under Cardiovascular Diseases were further sub-categorized into specific conditions (hypertension, heart failure, atrial fibrillation, stroke, other heart disease) using the same NLP-based approach applied to the trial descriptions.
+    
+    Concurrently, this analysis assessed the trial descriptions to identify studies employing digital health technologies (defined by the mention of smartphones, wearables, or tablets).
+    """)
+    
+    st.subheader("Final Cohort Selection")
+    st.write("""
+    Based on the primary research focus, a final selection filter was applied to the categorized dataset. Only trials assigned to the main categories of "Metabolic & Weight-Related Disorders," "Cardiovascular Diseases," or "Lifestyle & Behavioral Factors" were retained for the final analysis. This step excluded 296 trials, resulting in a final analytic cohort of 1,192 clinical trials.
+    """)
 
