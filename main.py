@@ -103,7 +103,7 @@ def count_other_languages(df):
 # Load original data for general analysis
 @st.cache_data
 def load_original_data():
-    df = pd.read_csv(FILENAME)
+    df = pd.read_csv(FILENAME, dtype={'first_zipcode': str})
     df.sponsor_type = df.sponsor_type.str.strip()
     return df
 
