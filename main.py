@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.express as px
 import pgeocode
 
+FILENAME = 'ncts_with_zipcode_and_sponsor_type.csv'
+
 
 # Set page config
 st.set_page_config(page_title="Clinical Trials Analysis", layout="wide", initial_sidebar_state="collapsed")
@@ -101,13 +103,15 @@ def count_other_languages(df):
 # Load original data for general analysis
 @st.cache_data
 def load_original_data():
-    return pd.read_csv('ncts_with_zipcode.csv')
+    df = pd.read_csv(FILENAME)
+    df.sponsor_type = df.sponsor_type.str.strip()
+    return df
 
 # Load and preprocess zipcode data for geographical analysis
 @st.cache_data
 def load_geographical_data():
     # Load the zipcode data
-    df = pd.read_csv('ncts_with_zipcode.csv')
+    df = load_original_data() #pd.read_csv(FILENAME)
     
     # Clean zip codes: Keep only 5 digits, handle NaN
     df['zip_clean'] = df['first_zipcode'].astype(str).str.extract(r'(\d{5})')
@@ -132,11 +136,7 @@ geo_df = load_geographical_data()
 
 st.title("Clinical Trials Language Analysis")
 
-# Create tabs
-tab1, tab2, tab3 = st.tabs(["Trial Categorization", "Geographical Analysis", "Methods"])
-
-# First tab - Trial Categorization
-with tab1:
+def display_trial_categorization():
     st.header("Trial Categorization Analysis")
     
     # Display basic statistics
@@ -387,24 +387,61 @@ with tab1:
         st.warning("Sub-category column not found in the dataset. Please check the column names.")
         st.write("Available columns:", original_df.columns.tolist())
 
-# Second tab - Geographical Analysis
-with tab2:
+def display_geographical_analysis():
     st.header("Geographical Distribution of Trials by State")
     if not geo_df.empty and 'state_code' in geo_df.columns:
-        # Calculate frequency per state
-        state_counts = geo_df['state_code'].value_counts().reset_index()
+        # Calculate frequency per state and filter for states with more than 5 trials
+        state_counts_unfiltered = geo_df['state_code'].value_counts()
+        states_to_show = state_counts_unfiltered[state_counts_unfiltered > 5].index
+        geo_df_filtered = geo_df[geo_df['state_code'].isin(states_to_show)]
+
+        # Calculate frequency per state for display, used for the dropdown selector later
+        state_counts = geo_df_filtered['state_code'].value_counts().reset_index()
         state_counts.columns = ['state_code', 'count']
-        
+
+        # Define map options, only show percentage option if data is available
+        map_options = ['Number of clinical trials']
+        if 'english_is_inclusion' in geo_df_filtered.columns:
+            map_options.append('Percentage of trials requiring English')
+
+        # Add a radio button to select the metric
+        metric_to_display = st.radio(
+            "Select a metric to display on the map (states with >5 trials shown):",
+            map_options,
+            key='geo_metric_radio'
+        )
+
+        if metric_to_display == 'Number of clinical trials':
+            display_data = state_counts
+            color_col = 'count'
+            map_title = 'Number of Clinical Trials by State'
+            color_label = 'Number of Trials'
+            range_color = None
+        else:  # Percentage of trials requiring English
+            # Calculate English inclusion statistics per state from the filtered dataframe
+            state_english_stats = geo_df_filtered.groupby('state_code')['english_is_inclusion'].agg(
+                included_english='sum',
+                total_trials='count'
+            ).reset_index()
+            state_english_stats['percentage'] = (state_english_stats['included_english'] / state_english_stats['total_trials']) * 100
+            
+            display_data = state_english_stats
+            color_col = 'percentage'
+            map_title = 'Percentage of Trials Requiring English by State'
+            color_label = '% Requiring English'
+            range_color = [0, 100]
+
         # Create choropleth map
         fig_map = px.choropleth(
-            state_counts,
+            display_data,
             locations='state_code',
             locationmode='USA-states',
-            color='count',
+            color=color_col,
             scope='usa',
-            title='Number of Clinical Trials by State',
+            title=map_title,
             color_continuous_scale=stanford_continuous, # Apply Stanford scale
-            labels={'count': 'Number of Trials', 'state_code': 'State'}
+            labels={color_col: color_label, 'state_code': 'State'},
+            range_color=range_color
         )
         
         # Update layout for better visualization
@@ -429,12 +466,13 @@ with tab2:
         
         # Show statistics for selected state or all states
         if selected_state == "All States":
-            st.subheader("Overall Statistics (All States)")
-            state_trials_original = original_df # Use original_df for all states
+            st.subheader("Overall Statistics (All Shown States)")
+            state_trial_ids = geo_df_filtered.index.tolist()
+            state_trials_original = original_df.loc[original_df.index.intersection(state_trial_ids)]
             total_trials = len(state_trials_original)
         else:
             # Get trials for selected state
-            state_trials_geo = geo_df[geo_df['state_code'] == selected_state]
+            state_trials_geo = geo_df_filtered[geo_df_filtered['state_code'] == selected_state]
             state_trial_ids = state_trials_geo.index.tolist()
             
             # Get corresponding trials from original dataset
@@ -538,8 +576,103 @@ with tab2:
     else:
         st.warning("Could not generate map. Ensure 'first_zipcode' column exists and contains valid US zip codes.")
 
-# Third tab - Methods
-with tab3:
+def display_sponsor_analysis():
+    st.header("Sponsor Type Analysis")
+    st.write("This section analyzes language criteria based on the type of trial sponsor (Academic vs. Industry).")
+    
+    if 'sponsor_type' not in original_df.columns:
+        st.warning("Sponsor type column not found. Please ensure 'sponsor_type' is in the dataset.")
+        return
+
+    # Filter out 'Unknown' or NaN sponsor types for a cleaner comparison
+    sponsor_df = original_df.copy()
+    #sponsor_df.sponsor_type = sponsor_df.sponsor_type.str.strip()
+
+    st.subheader("Distribution of Sponsor Types")
+    sponsor_counts = sponsor_df['sponsor_type'].value_counts()
+    fig_sponsor_pie = px.pie(
+        values=sponsor_counts.values, 
+        names=sponsor_counts.index,
+        title="Distribution of Sponsor Types (Academic vs. Industry)",
+        color_discrete_sequence=stanford_categorical
+    )
+    fig_sponsor_pie.update_traces(hoverinfo="label+percent+value")
+    st.plotly_chart(fig_sponsor_pie, use_container_width=True, key="sponsor_pie")
+    st.divider()
+
+    st.subheader("Language Criteria by Sponsor Type")
+    
+    # Group by sponsor_type and calculate percentages
+    sponsor_lang_stats = sponsor_df.groupby('sponsor_type').agg(
+        total_trials=('sponsor_type', 'count'),
+        english_inclusion=('english_is_inclusion', 'sum'),
+        non_english_exclusion=('non_english_is_exclusion', 'sum')
+    ).reset_index()
+
+    sponsor_lang_stats['english_inclusion_pct'] = (sponsor_lang_stats['english_inclusion'] / sponsor_lang_stats['total_trials']) * 100
+    sponsor_lang_stats['non_english_exclusion_pct'] = (sponsor_lang_stats['non_english_exclusion'] / sponsor_lang_stats['total_trials']) * 100
+
+    # Melt the dataframe for plotting
+    stats_to_plot = sponsor_lang_stats.melt(
+        id_vars=['sponsor_type', 'total_trials'],
+        value_vars=['english_inclusion_pct', 'non_english_exclusion_pct'],
+        var_name='criteria',
+        value_name='percentage'
+    )
+    
+    stats_to_plot['criteria'] = stats_to_plot['criteria'].map({
+        'english_inclusion_pct': 'English as Inclusion',
+        'non_english_exclusion_pct': 'Non-English as Exclusion'
+    })
+
+    # Create the grouped bar chart
+    fig_sponsor_lang = px.bar(
+        stats_to_plot,
+        x='sponsor_type',
+        y='percentage',
+        color='criteria',
+        barmode='group',
+        title='Language Criteria by Sponsor Type',
+        labels={'sponsor_type': 'Sponsor Type', 'percentage': 'Percentage of Trials (%)', 'criteria': 'Language Criterion'},
+        color_discrete_map={
+            'English as Inclusion': stanford_cardinal,
+            'Non-English as Exclusion': stanford_palo_alto_blue
+        },
+        text=stats_to_plot['percentage'].apply(lambda x: f'{x:.1f}%')
+    )
+
+    fig_sponsor_lang.update_traces(textposition='outside')
+    fig_sponsor_lang.update_layout(
+        yaxis_title='Percentage of Trials',
+        xaxis_title=None,
+        legend_title='Language Criterion',
+        uniformtext_minsize=8, 
+        uniformtext_mode='hide'
+    )
+    
+    st.plotly_chart(fig_sponsor_lang, use_container_width=True, key="sponsor_lang_bar")
+    
+    st.write("""
+    This chart compares the percentage of trials broken down by whether the sponsor is academic or from industry. No statistical significant difference was found between the distributions of trials sponsored by academic and industry sponsors.
+    - **English as Inclusion**: The percentage of trials requiring English proficiency.
+    - **Non-English as Exclusion**: The percentage of trials excluding non-English speakers.
+    """)
+    st.divider()
+    
+    # Display raw numbers and download option
+    st.subheader("Detailed Data by Sponsor Type")
+    st.dataframe(sponsor_lang_stats, use_container_width=True)
+
+    csv_sponsor = convert_df_to_csv(sponsor_lang_stats)
+    st.download_button(
+        label="Download Sponsor Analysis Data (CSV)",
+        data=csv_sponsor,
+        file_name='sponsor_language_analysis.csv',
+        mime='text/csv',
+        key='sponsor_download'
+    )
+
+def display_methods():
     st.header("Methods")
     
     # Display flowchart at the top
@@ -554,7 +687,7 @@ with tab3:
     
     st.subheader("Language Criteria Extraction and Refinement")
     st.write("""
-    The extracted inclusion and exclusion criteria texts for the 1,488 trials were processed usingnatural language processing for each trial record from their web entry on ClinicalTrials.gov. This extraction process was subject to occasional errors, leading to incomplete criteria data for a subset of trials. An initial analysis of this automated extraction output was performed to identify trials where criteria extraction was incomplete (i.e., both inclusion and exclusion fields were blank, or only one was populated). For these identified trials, the complete inclusion and exclusion criteria were manually retrieved from ClinicaTrials.gov and integrated into the dataset. Subsequently, the language criteria extraction process was re-executed on the fully populated dataset of 1,488 trials to ensure consistent analysis.
+    The extracted inclusion and exclusion criteria texts for the 1,488 trials were processed using natural language processing for each trial record from their web entry on ClinicalTrials.gov. This extraction process was subject to occasional errors, leading to incomplete criteria data for a subset of trials. An initial analysis of this automated extraction output was performed to identify trials where criteria extraction was incomplete (i.e., both inclusion and exclusion fields were blank, or only one was populated). For these identified trials, the complete inclusion and exclusion criteria were manually retrieved from ClinicaTrials.gov and integrated into the dataset. Subsequently, the language criteria extraction process was re-executed on the fully populated dataset of 1,488 trials to ensure consistent analysis.
     """)
     
     st.subheader("Trial Categorization and Feature Identification")
@@ -569,3 +702,90 @@ with tab3:
     Based on the primary research focus, a final selection filter was applied to the categorized dataset. Only trials assigned to the main categories of "Metabolic & Weight-Related Disorders," "Cardiovascular Diseases," or "Lifestyle & Behavioral Factors" were retained for the final analysis. This step excluded 296 trials, resulting in a final analytic cohort of 1,192 clinical trials.
     """)
 
+    st.subheader("Validation of NLP Pipeline for Inclusion/Exclusion Criteria Extraction")
+    st.write("""
+    To validate the accuracy of the NLP pipeline for inclusion/exclusion criteria extraction, a subset of 99 trials was manually reviewed by directly referencing the trial record on ClinicalTrials.gov. The performance of the pipeline was evaluated for two key tasks: identifying 'English language proficiency' as an inclusion criterion and identifying 'non-English language proficiency' as an exclusion criterion.
+
+    The pipeline demonstrated high accuracy for both tasks. For identifying English as an inclusion criterion, it achieved a balanced accuracy of 0.9872 and an F1-score of 0.9870. For identifying non-English as an exclusion criterion, it achieved a balanced accuracy of 0.9502 and an F1-score of 0.9286. Detailed performance metrics are presented in the table below.
+    Two of the errors in the Non-English as exclusion criteria were once due to wrongfully extracting an inclusion criterion as an exclusion criterion and once due to ambiguous language in the criteria text, which the manual rater noted as potentially unclear.
+    """)
+
+    # Create a dataframe for the performance metrics
+    perf_data = {
+        'Metric': ['Balanced Accuracy', 'F1 Score', 'Precision', 'Recall', 'ROC AUC'],
+        'English is Inclusion Criteria': [0.9872, 0.9870, 1.0000, 0.9744, 0.9872],
+        'Non-English is Exclusion Criteria': [0.9502, 0.9286, 0.9286, 0.9286, 0.9502]
+    }
+    perf_df = pd.DataFrame(perf_data).set_index('Metric')
+    st.dataframe(perf_df, use_container_width=True)
+
+    st.image(
+        "confusion_matrix_english_is_inclusion.png",
+        caption="Confusion matrix for the validation of the NLP pipeline in identifying 'English language proficiency' as an inclusion criterion.",
+        width=768
+    )
+    st.image(
+        "confusion_matrix_non_english_exclusion.png",
+        caption="Confusion matrix for the validation of the NLP pipeline in identifying 'non-English language proficiency' as an exclusion criterion.",
+        width=768
+    )
+
+    st.subheader("Analysis of Sponser Type on Language Criteria")
+    st.write("""
+    To analyze whether academic vs industry sponsored trials have differing language inclusion/exclusion criteria, we compared the language criteria of trials sponsored by industry and trials sponsored by academic institutions.
+    To assign sponsor type to each trial, we used a semi-automated approach based on a keyword search of the sponsor and manual review of ambiguous instances, as outlined in the following guidelines:
+
+    **Industry Sponsors**
+    - Pharmaceutical companies (e.g., Amgen, AstraZeneca, Bayer)
+    - Medical device manufacturers (e.g., Abbott Medical Devices, Becton Dickinson)
+    - Technology companies (e.g., Apple Inc., AliveCor)
+    - Private healthcare organizations and for-profit hospitals
+    - Private research organizations/CROs
+    - Biotechnology companies
+    - Companies with "Inc.", "Corp.", "LLC", "Ltd." in name (unless clearly academic)
+
+    **Academic Sponsors**
+    - Universities and colleges (e.g., Arizona State University, Baylor College of Medicine)
+    - Academic medical centers affiliated with universities
+    - Government research institutes (NIH, CDC, etc.)
+    - Non-profit research foundations
+    - Public hospitals and health systems
+    - Professional medical associations
+    - Educational institutions
+
+    **Classification Rules**
+    1. If "University", "College", "Institute" appears in an academic context → Academic
+    2. If clearly a company name with corporate suffix → Industry
+    3. If a medical center affiliated with a university → Academic
+    4. If a private for-profit healthcare organization → Industry
+    5. If government agency or public institution → Academic
+    6. Remaining cases set to unknown and reviewed manually
+
+    **Treatment of Special Cases (Manual Review)**
+    - Research institutes can be either academic or industry depending on whether they are for-profit (industry) or not (academic).
+    - Health systems can be academic (non-profit) or industry (for-profit)
+    - Individual natural persons as sponsors were treated as academic
+    """)
+    
+    st.write("""
+    **Statistical Comparison between Distributions**
+        Statistical significance of the inclusion exclusion distribution between academia and industry was tested using a chi-squared test at a 0.05 significance level and 1 degree of freedom. For non-english as exclusion criteria, this resulted in a Chi-square statistic: 1.2323
+with a p-value: 0.2670. For english as inclusion criteria, this resulted in a Chi-square statistic: 0.0769 with a p-value: 0.7815.
+    """)
+
+# Use a radio button for navigation that preserves state across reruns
+selected_tab = st.radio(
+    "Navigation",
+    ["Trial Categorization", "Geographical Analysis", "Sponsor Analysis", "Methods"],
+    horizontal=True,
+    label_visibility="collapsed",
+)
+
+if selected_tab == "Trial Categorization":
+    display_trial_categorization()
+elif selected_tab == "Geographical Analysis":
+    display_geographical_analysis()
+elif selected_tab == "Sponsor Analysis":
+    display_sponsor_analysis()
+else:
+    display_methods()

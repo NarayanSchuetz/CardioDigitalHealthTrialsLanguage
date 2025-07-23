@@ -145,4 +145,4 @@ dmypy.json
 *.sqlite
 
 # Exception for app data files
-!ncts_with_zipcode.csv 
+!ncts_with_zipcode_and_sponsor_type.csv
